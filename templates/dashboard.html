@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Rixos Hikvision ANPR Dashboard</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/dashboard.css') }}"
+    >
+</head>
+
+<body>
+
+<div class="page">
+
+    <!-- HEADER -->
+	<header class="header">
+
+    	<div class="header-left">
+        	<img
+            	src="{{ url_for('static', filename='logo.png') }}"
+            	alt="GreenParking"
+            	class="company-logo"
+        	>
+
+        	<div>
+            	<h1>ANPR Monitoring Dashboard</h1>
+            	<p>Live Vehicle Entry & Exit Monitoring</p>
+        	</div>
+    	</div>
+
+	    <div class="header-right">
+
+	        <div class="system-status">
+    	        <span class="pulse"></span>
+        	    <span>SYSTEM LIVE</span>
+        	</div>
+
+	        <div class="developer">
+    	        Developed by <strong>Ahmed Ghufran</strong>
+        	</div>
+
+	    </div>
+
+	</header>
+
+
+    <!-- STATISTICS -->
+    <section class="stats">
+
+        <div class="stat-card">
+            <span>TODAY</span>
+            <strong id="stat-total">0</strong>
+        </div>
+
+        <div class="stat-card entry-stat">
+            <span>ENTRY</span>
+            <strong id="stat-entry">0</strong>
+        </div>
+
+        <div class="stat-card exit-stat">
+            <span>EXIT</span>
+            <strong id="stat-exit">0</strong>
+        </div>
+
+        <div class="stat-card">
+            <span>LPR READ RATE</span>
+            <strong id="stat-rate">0%</strong>
+        </div>
+
+    </section>
+
+
+    <!-- LATEST ENTRY / EXIT -->
+    <section class="latest-grid">
+
+        <!-- ENTRY -->
+        <div
+            class="latest-card entry-card"
+            id="latest-entry"
+        >
+
+            <div class="latest-title">
+                <span class="direction-dot"></span>
+                LATEST ENTRY
+            </div>
+
+            <div class="latest-content">
+
+                <div class="latest-image">
+                    <div class="no-image">
+                        Waiting for Entry
+                    </div>
+                </div>
+
+                <div class="latest-info">
+                    <div class="latest-plate">
+                        --
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- EXIT -->
+        <div
+            class="latest-card exit-card"
+            id="latest-exit"
+        >
+
+            <div class="latest-title">
+                <span class="direction-dot"></span>
+                LATEST EXIT
+            </div>
+
+            <div class="latest-content">
+
+                <div class="latest-image">
+                    <div class="no-image">
+                        Waiting for Exit
+                    </div>
+                </div>
+
+                <div class="latest-info">
+                    <div class="latest-plate">
+                        --
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- HISTORY -->
+    <section class="history">
+
+        <div class="history-header">
+
+            <div>
+                <h2>ANPR History</h2>
+
+                <p>
+                    Entry and Exit vehicle activity
+                </p>
+            </div>
+
+            <div class="last-update">
+                Updated
+                <strong id="last-update">--</strong>
+            </div>
+
+        </div>
+
+
+        <!-- FILTERS -->
+        <div class="filters">
+
+            <input
+                id="search"
+                type="text"
+                placeholder="Search plate number..."
+            >
+
+            <select id="direction-filter">
+
+                <option value="">
+                    All Movements
+                </option>
+
+                <option value="Entry">
+                    Entry
+                </option>
+
+                <option value="Exit">
+                    Exit
+                </option>
+
+            </select>
+
+
+            <select id="lpr-filter">
+
+                <option value="">
+                    All LPR Status
+                </option>
+
+                <option value="read">
+                    LPR Read
+                </option>
+
+                <option value="not-read">
+                    LPR not Read
+                </option>
+
+            </select>
+
+        </div>
+
+
+        <!-- EVENT TABLE -->
+        <div class="table-wrapper">
+
+            <table>
+
+                <thead>
+
+                    <tr>
+                        <th>Time</th>
+                        <th>Movement</th>
+                        <th>Plate Image</th>
+                        <th>Plate</th>
+                        <th>State</th>
+                        <th>Vehicle</th>
+                        <th>Confidence</th>
+                        <th>Evidence</th>
+                    </tr>
+
+                </thead>
+
+                <tbody id="events-body">
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </section>
+
+</div>
+
+
+<!-- IMAGE VIEWER -->
+<div
+    id="image-modal"
+    class="modal"
+>
+
+    <div class="modal-box">
+
+        <button
+            class="modal-close"
+            onclick="closeModal()"
+        >
+            ×
+        </button>
+
+        <img
+            id="modal-image"
+            src=""
+            alt="ANPR Evidence"
+        >
+
+    </div>
+
+</div>
+
+
+<script>
+    window.DASHBOARD_POLL_INTERVAL_MS = {{ poll_interval_ms }};
+</script>
+
+<script
+    src="{{ url_for('static', filename='js/dashboard.js') }}"
+></script>
+
+</body>
+</html>
+

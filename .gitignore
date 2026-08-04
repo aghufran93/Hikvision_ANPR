@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual Environment
+venv/
+.env
+
+# Runtime Data
+output/
+xml_temp/
+logs/
+
+# Images
+*.jpg
+*.jpeg
+*.png
+
+# Database
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Temporary
+*.tmp
+*.swp
+
+

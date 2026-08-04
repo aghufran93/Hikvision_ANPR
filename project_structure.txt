@@ -1,0 +1,28 @@
+.
+├── .env
+├── .gitignore
+├── camera_listener.py
+├── dashboard.py
+├── data
+│   ├── Entry
+│   └── Exit
+├── entry_listener.py
+├── exit_listener.py
+├── logs
+├── output
+│   ├── Entry
+│   └── Exit
+├── requirements.txt
+├── static
+│   ├── css
+│   │   └── dashboard.css
+│   ├── js
+│   │   └── dashboard.js
+│   └── logo.png
+├── templates
+│   └── dashboard.html
+└── xml_temp
+    ├── Entry
+    └── Exit
+
+15 directories, 11 files
