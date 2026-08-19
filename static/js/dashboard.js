@@ -507,16 +507,18 @@ function renderCameraStatus(elementId, status) {
         el.textContent = "Camera Live";
         el.className = "camera-status online";
 
-    } else if (status.connected) {
-
-        el.textContent = "No Recent Data";
-        el.className = "camera-status offline";
-
     } else {
 
         el.textContent = "Camera Offline";
         el.className = "camera-status offline";
     }
+
+    el.title =
+        status.last_frame_seconds_ago != null
+            ? "Last stream activity " +
+              Math.round(status.last_frame_seconds_ago) +
+              "s ago"
+            : "No stream activity since connecting";
 }
 
 

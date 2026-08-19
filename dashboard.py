@@ -75,16 +75,6 @@ MAX_EVENTS_RETURNED = 500
 MAX_EXPORT_ROWS = 2000
 EXPORT_THUMB_PX = 80
 
-# Camera considered "live" if the listener process saw stream data
-# (a chunk on the multipart HTTP connection - actual vehicle events
-# or the camera's own periodic heartbeat XML, whichever comes first)
-# within this many seconds. Generous on purpose: this is a
-# connectivity check, not a vehicle-throughput check, so it shouldn't
-# flip to "stale" during a quiet period with no cars.
-CAMERA_STATUS_STALE_SECONDS = float(
-    os.getenv("DASHBOARD_CAMERA_STATUS_STALE_SECONDS", "60")
-)
-
 # How often the background thread re-checks the output directories for
 # new/modified files. This is not the browser's refresh rate - the
 # browser is pushed an update immediately via SSE when something
@@ -362,10 +352,14 @@ def read_camera_status(role):
         time.time() - last_frame_at if last_frame_at else None
     )
 
-    online = bool(data.get("connected")) and (
-        last_frame_seconds_ago is not None
-        and last_frame_seconds_ago < CAMERA_STATUS_STALE_SECONDS
-    )
+    # The multipart connection itself (`connected`) is the trustworthy
+    # signal: these cameras don't send anything on the stream absent an
+    # actual vehicle event, so gating "online" on recent frame activity
+    # made this show "offline" indefinitely during quiet periods. Actual
+    # stalls are already caught listener-side by STREAM_READ_TIMEOUT
+    # (anpr_common.py) and reflected here via `connected` flipping to
+    # False on reconnect.
+    online = bool(data.get("connected"))
 
     return {
         "role": role,
