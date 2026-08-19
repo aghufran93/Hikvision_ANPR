@@ -94,6 +94,18 @@ WATCHDOG_INTERVAL = 1.0
 
 ORPHAN_GRACE_SECONDS = _int_env("ANPR_ORPHAN_GRACE_SECONDS", 5)
 
+# Orphan images that age out of the grace period above are persisted to
+# xml_temp/<role>/orphans/ for manual review (see _persist_orphan).
+# Nothing ever removed them, so that directory grew without bound.
+# ORPHAN_FILE_MAX_AGE_SECONDS bounds how long a persisted orphan file is
+# kept before the watchdog purges it; the purge itself only runs every
+# ORPHAN_PURGE_INTERVAL_SECONDS since it's a directory scan, not worth
+# doing on every 1s watchdog tick.
+ORPHAN_FILE_MAX_AGE_SECONDS = _int_env(
+    "ANPR_ORPHAN_FILE_MAX_AGE_SECONDS", 7 * 24 * 3600
+)
+ORPHAN_PURGE_INTERVAL_SECONDS = 3600
+
 MAX_BUFFER_BYTES = 20 * 1024 * 1024
 
 CONNECT_TIMEOUT = 10
@@ -646,6 +658,7 @@ class EventCache:
         self.stop_event = threading.Event()
 
         self._unnamed_counter = 0
+        self._last_orphan_purge = 0.0
 
     # --------------------------------------------------------
     # XML arrival
@@ -686,6 +699,25 @@ class EventCache:
                     "so it is never dropped.",
                     cache_key
                 )
+
+            if cache_key in self.pending:
+                self.logger.warning(
+                    "Duplicate XML for uuid=%s ignored (already pending) "
+                    "- a retransmitted XML must never silently replace an "
+                    "event whose images may already be arriving.",
+                    cache_key
+                )
+                return
+
+            if cache_key in self.recent_saved:
+                self.logger.warning(
+                    "Duplicate XML for uuid=%s ignored (already saved, "
+                    "still in its late-attach window) - a retransmitted "
+                    "XML must never spawn a second event for the same "
+                    "UUID.",
+                    cache_key
+                )
+                return
 
             pending = PendingEvent(cache_key, xml_bytes, event, plan, expected_images)
             self.pending[cache_key] = pending
@@ -1055,6 +1087,37 @@ class EventCache:
 
         for orphan in expired_orphans:
             self._persist_orphan(orphan)
+
+        if now - self._last_orphan_purge >= ORPHAN_PURGE_INTERVAL_SECONDS:
+            self._last_orphan_purge = now
+            self._purge_old_orphan_files()
+
+    def _purge_old_orphan_files(self):
+        cutoff = time.time() - ORPHAN_FILE_MAX_AGE_SECONDS
+        purged = 0
+
+        try:
+            with os.scandir(self.orphan_dir) as it:
+                for entry in it:
+                    try:
+                        if not entry.is_file():
+                            continue
+                        if entry.stat().st_mtime < cutoff:
+                            os.remove(entry.path)
+                            purged += 1
+                    except OSError:
+                        continue
+        except FileNotFoundError:
+            return
+        except Exception:
+            self.logger.exception("Failed purging old orphan images")
+            return
+
+        if purged:
+            self.logger.info(
+                "Purged %d stale orphan image(s) older than %ds from %s",
+                purged, ORPHAN_FILE_MAX_AGE_SECONDS, self.orphan_dir
+            )
 
     def _persist_orphan(self, orphan):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]

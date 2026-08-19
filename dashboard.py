@@ -20,6 +20,7 @@ instead of waiting for its next poll tick.
 additive "version" field), so nothing downstream breaks.
 """
 
+import io
 import os
 import json
 import threading
@@ -30,10 +31,29 @@ from flask import (
     Flask,
     render_template,
     jsonify,
+    request,
+    send_file,
     send_from_directory,
     abort,
     Response,
     stream_with_context,
+)
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+from PIL import Image as PILImage
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    Image as RLImage,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
 )
 
 
@@ -47,6 +67,13 @@ ENTRY_DIR = os.path.join(BASE_DIR, "output", "Entry")
 EXIT_DIR = os.path.join(BASE_DIR, "output", "Exit")
 
 MAX_EVENTS_RETURNED = 500
+
+# Excel/PDF export embeds a thumbnail per row, so unlike /api/events (a
+# plain JSON list) an unbounded export could mean generating a
+# multi-hundred-MB file. Callers must narrow their filters instead of
+# silently getting a truncated report.
+MAX_EXPORT_ROWS = 2000
+EXPORT_THUMB_PX = 80
 
 # How often the background thread re-checks the output directories for
 # new/modified files. This is not the browser's refresh rate - the
@@ -193,6 +220,108 @@ def build_stats(events):
         "not_read": total - read_events,
         "read_rate": read_rate,
     }
+
+
+# ============================================================
+# FILTERING (shared by /api/events/query and /api/export)
+# ============================================================
+
+def parse_date_param(value):
+    if not value:
+        return None
+
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def parse_event_date(event_time):
+    if not event_time:
+        return None
+
+    try:
+        return datetime.fromisoformat(event_time).date()
+    except ValueError:
+        return None
+
+
+def apply_filters(events, args):
+    start_date = parse_date_param(args.get("start_date"))
+    end_date = parse_date_param(args.get("end_date"))
+    direction = args.get("direction") or ""
+    lpr = args.get("lpr") or ""
+    vehicle_type = args.get("vehicle_type") or ""
+    plate_type = args.get("plate_type") or ""
+    search = (args.get("search") or "").strip().lower()
+
+    def matches(event):
+        if direction and event["direction"] != direction:
+            return False
+
+        if lpr == "read" and not event["lpr_read"]:
+            return False
+
+        if lpr == "not-read" and event["lpr_read"]:
+            return False
+
+        if vehicle_type and event["vehicle_type"] != vehicle_type:
+            return False
+
+        if plate_type and event["plate_type"] != plate_type:
+            return False
+
+        if search and search not in event["full_plate"].lower():
+            return False
+
+        if start_date or end_date:
+            event_date = parse_event_date(event["event_time"])
+
+            if event_date is None:
+                return False
+            if start_date and event_date < start_date:
+                return False
+            if end_date and event_date > end_date:
+                return False
+
+        return True
+
+    return [event for event in events if matches(event)]
+
+
+def resolve_image_path(event, image_field):
+    filename = event.get(image_field)
+
+    if not filename:
+        return None
+
+    directory = ENTRY_DIR if event["direction"] == "Entry" else EXIT_DIR
+    path = os.path.join(directory, filename)
+
+    return path if os.path.isfile(path) else None
+
+
+def make_thumbnail(path, max_px):
+    """Downscaled JPEG bytes for embedding in an export. The captured
+    plate crops are full-resolution camera JPEGs (hundreds of KB each);
+    embedding those directly per row would turn a few hundred events
+    into a multi-hundred-MB file, so this re-encodes a small thumbnail
+    instead of relying on the spreadsheet/PDF viewer's display scaling,
+    which only resizes on screen and does not shrink the stored bytes."""
+
+    try:
+        with PILImage.open(path) as src:
+            thumb = src.convert("RGB")
+            thumb.thumbnail((max_px, max_px))
+
+            buf = io.BytesIO()
+            thumb.save(buf, format="JPEG", quality=72)
+            buf.seek(0)
+
+            return buf
+    except Exception:
+        app.logger.warning("Failed to build thumbnail for %s", path)
+        return None
 
 
 # ============================================================
@@ -357,6 +486,134 @@ _scanner_thread.start()
 
 
 # ============================================================
+# EXPORT (Excel / PDF)
+#
+# Filters are applied by the caller (apply_filters) before either of
+# these is called - both just render whatever event list they're given.
+# Thumbnails are embedded per the "embed plate thumbnail per row"
+# requirement; MAX_EXPORT_ROWS in /api/export is what keeps that from
+# turning into an unbounded-size file.
+# ============================================================
+
+EXPORT_COLUMNS = [
+    ("date", "Date"),
+    ("time", "Time"),
+    ("direction", "Movement"),
+    ("full_plate", "Plate Number"),
+    ("state", "State/Emirate"),
+    ("vehicle_type", "Vehicle Type"),
+    ("plate_type", "Plate Type"),
+    ("vehicle_color", "Vehicle Colour"),
+    ("plate_color", "Plate Colour"),
+    ("confidence_display", "Confidence"),
+    ("camera_name", "Camera"),
+]
+
+
+def lpr_status_label(event):
+    return "Read" if event.get("lpr_read") else "Not Read"
+
+
+def build_excel(events):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ANPR Events"
+
+    headers = ["Plate Image"] + [label for _, label in EXPORT_COLUMNS] + ["LPR Status"]
+    ws.append(headers)
+
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    ws.column_dimensions["A"].width = 14
+    for col_index in range(2, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col_index)].width = 16
+
+    for row_index, event in enumerate(events, start=2):
+        ws.row_dimensions[row_index].height = 62
+
+        for col_offset, (field, _) in enumerate(EXPORT_COLUMNS, start=2):
+            ws.cell(row=row_index, column=col_offset, value=event.get(field, ""))
+
+        ws.cell(row=row_index, column=len(headers), value=lpr_status_label(event))
+
+        image_path = resolve_image_path(event, "plate_image")
+        thumb = make_thumbnail(image_path, EXPORT_THUMB_PX) if image_path else None
+
+        if thumb:
+            try:
+                img = XLImage(thumb)
+                img.width = EXPORT_THUMB_PX
+                img.height = EXPORT_THUMB_PX
+                ws.add_image(img, f"A{row_index}")
+            except Exception:
+                app.logger.warning("Failed to embed %s in Excel export", image_path)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return buffer
+
+
+def build_pdf(events):
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+        leftMargin=8 * mm,
+        rightMargin=8 * mm,
+    )
+
+    styles = getSampleStyleSheet()
+    elements = [
+        Paragraph("ANPR Event Export", styles["Title"]),
+        Spacer(1, 6),
+    ]
+
+    headers = ["Image"] + [label for _, label in EXPORT_COLUMNS] + ["LPR"]
+    data = [headers]
+
+    thumb_size = 16 * mm
+    thumb_px = int(EXPORT_THUMB_PX)
+
+    for event in events:
+        image_path = resolve_image_path(event, "plate_image")
+        thumb = make_thumbnail(image_path, thumb_px) if image_path else None
+
+        if thumb:
+            try:
+                cell = RLImage(thumb, width=thumb_size, height=thumb_size)
+            except Exception:
+                cell = "N/A"
+        else:
+            cell = "N/A"
+
+        row = [cell] + [str(event.get(field, "")) for field, _ in EXPORT_COLUMNS]
+        row.append(lpr_status_label(event))
+        data.append(row)
+
+    table = Table(data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2a44")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f6fa")]),
+    ]))
+    elements.append(table)
+
+    doc.build(elements)
+    buffer.seek(0)
+
+    return buffer
+
+
+# ============================================================
 # WEB ROUTES
 # ============================================================
 
@@ -389,6 +646,115 @@ def api_events():
         "stats": build_stats(events),
         "version": version,
     })
+
+
+@app.route("/api/filters")
+def api_filters():
+    """Distinct vehicle_type/plate_type values seen in the index, so
+    the frontend's export filter dropdowns reflect real data instead of
+    a hardcoded guess."""
+
+    events, _ = index.get_sorted_events()
+
+    vehicle_types = sorted({
+        event["vehicle_type"] for event in events
+        if event["vehicle_type"] and event["vehicle_type"] != "-"
+    })
+
+    plate_types = sorted({
+        event["plate_type"] for event in events
+        if event["plate_type"] and event["plate_type"] != "-"
+    })
+
+    return jsonify({
+        "vehicle_types": vehicle_types,
+        "plate_types": plate_types,
+    })
+
+
+@app.route("/api/events/query")
+def api_events_query():
+    """Paginated, filtered event browsing - separate from /api/events
+    (which stays a fixed-shape "latest 500" feed for the live dashboard)
+    so browsing beyond that cap, or by date range/vehicle/plate type,
+    doesn't require changing that existing contract."""
+
+    events, version = index.get_sorted_events()
+    filtered = apply_filters(events, request.args)
+
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except ValueError:
+        page = 1
+
+    try:
+        page_size = int(request.args.get("page_size", 100))
+    except ValueError:
+        page_size = 100
+
+    page_size = max(1, min(page_size, 1000))
+
+    total = len(filtered)
+    total_pages = max(1, -(-total // page_size))
+    page = min(page, total_pages)
+
+    start = (page - 1) * page_size
+    end = start + page_size
+
+    return jsonify({
+        "events": filtered[start:end],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "version": version,
+    })
+
+
+@app.route("/api/export")
+def api_export():
+    fmt = (request.args.get("format") or "xlsx").lower()
+
+    if fmt not in ("xlsx", "pdf"):
+        abort(400, description="format must be 'xlsx' or 'pdf'")
+
+    events, _ = index.get_sorted_events()
+    filtered = apply_filters(events, request.args)
+
+    if not filtered:
+        abort(404, description="No events match the given filters")
+
+    if len(filtered) > MAX_EXPORT_ROWS:
+        abort(
+            413,
+            description=(
+                f"{len(filtered)} events matched - narrow your date "
+                f"range or filters to {MAX_EXPORT_ROWS} or fewer for "
+                "an image-embedded export."
+            ),
+        )
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if fmt == "xlsx":
+        buffer = build_excel(filtered)
+        return send_file(
+            buffer,
+            mimetype=(
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            ),
+            as_attachment=True,
+            download_name=f"anpr_export_{timestamp}.xlsx",
+        )
+
+    buffer = build_pdf(filtered)
+    return send_file(
+        buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"anpr_export_{timestamp}.pdf",
+    )
 
 
 @app.route("/api/events/stream")
