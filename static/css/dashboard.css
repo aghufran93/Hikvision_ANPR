@@ -186,6 +186,40 @@ body {
 }
 
 
+.camera-status {
+    margin-left: auto;
+
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .3px;
+
+    color: #94a099;
+}
+
+.camera-status::before {
+    content: "";
+
+    width: 7px;
+    height: 7px;
+
+    border-radius: 50%;
+
+    background: currentColor;
+}
+
+.camera-status.online {
+    color: #1e9c58;
+}
+
+.camera-status.offline {
+    color: #d24b4b;
+}
+
+
 .latest-content {
     display: grid;
 
@@ -386,6 +420,19 @@ body {
     background: white;
 
     font-size: 14px;
+}
+
+.export-datetime {
+    display: flex;
+    gap: 6px;
+}
+
+.export-datetime input[type="date"] {
+    width: 150px;
+}
+
+.export-datetime input[type="time"] {
+    width: 110px;
 }
 
 .export-actions {
@@ -670,6 +717,11 @@ tbody tr:hover {
 
     .export-field input,
     .export-field select {
+        width: 100%;
+    }
+
+    .export-datetime input[type="date"],
+    .export-datetime input[type="time"] {
         width: 100%;
     }
 }

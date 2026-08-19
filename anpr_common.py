@@ -660,6 +660,42 @@ class EventCache:
         self._unnamed_counter = 0
         self._last_orphan_purge = 0.0
 
+        # Camera connection status, polled by dashboard.py from a
+        # separate process - see mark_connected/mark_frame_received.
+        # Wall-clock (time.time()), not monotonic: watchdog_tick's `now`
+        # is monotonic and only meaningful within this process.
+        self.status_path = os.path.join(xml_temp_dir, "status.json")
+        self.connected = False
+        self.connected_since = None
+        self.last_frame_at = None
+
+    # --------------------------------------------------------
+    # Camera connection status (read by dashboard.py)
+    # --------------------------------------------------------
+
+    def mark_connected(self, connected):
+        self.connected = connected
+        self.connected_since = time.time() if connected else None
+        self._write_status()
+
+    def mark_frame_received(self):
+        # Called once per raw chunk off the multipart stream (not per
+        # parsed XML/JPEG part) - cheap in-memory timestamp only, no
+        # disk I/O here. watchdog_tick flushes it to disk periodically.
+        self.last_frame_at = time.time()
+
+    def _write_status(self):
+        try:
+            atomic_write_json(self.status_path, {
+                "role": self.camera_role,
+                "connected": self.connected,
+                "connected_since": self.connected_since,
+                "last_frame_at": self.last_frame_at,
+                "updated_at": time.time(),
+            })
+        except Exception:
+            self.logger.exception("Failed writing camera status file")
+
     # --------------------------------------------------------
     # XML arrival
     # --------------------------------------------------------
@@ -1092,6 +1128,8 @@ class EventCache:
             self._last_orphan_purge = now
             self._purge_old_orphan_files()
 
+        self._write_status()
+
     def _purge_old_orphan_files(self):
         cutoff = time.time() - ORPHAN_FILE_MAX_AGE_SECONDS
         purged = 0
@@ -1299,6 +1337,7 @@ class ANPRListener:
                 boundary.decode("latin1", errors="ignore")
             )
 
+            self.cache.mark_connected(True)
             self._parse_multipart(response, boundary)
 
         except requests.exceptions.ReadTimeout:
@@ -1315,6 +1354,8 @@ class ANPRListener:
             self.logger.exception("Camera connection error")
 
         finally:
+            self.cache.mark_connected(False)
+
             watchdog_stop.set()
             watchdog.join(timeout=WATCHDOG_INTERVAL * 2)
 
@@ -1339,6 +1380,8 @@ class ANPRListener:
         for chunk in response.iter_content(chunk_size=64 * 1024):
             if not chunk:
                 continue
+
+            self.cache.mark_frame_received()
 
             buffer += chunk
 

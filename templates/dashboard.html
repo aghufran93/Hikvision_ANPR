@@ -91,6 +91,13 @@
             <div class="latest-title">
                 <span class="direction-dot"></span>
                 LATEST ENTRY
+
+                <span
+                    class="camera-status"
+                    id="camera-status-entry"
+                >
+                    Checking camera...
+                </span>
             </div>
 
             <div class="latest-content">
@@ -121,6 +128,13 @@
             <div class="latest-title">
                 <span class="direction-dot"></span>
                 LATEST EXIT
+
+                <span
+                    class="camera-status"
+                    id="camera-status-exit"
+                >
+                    Checking camera...
+                </span>
             </div>
 
             <div class="latest-content">
@@ -230,12 +244,18 @@
 
             <div class="export-field">
                 <label for="export-start-date">From</label>
-                <input id="export-start-date" type="date">
+                <div class="export-datetime">
+                    <input id="export-start-date" type="date">
+                    <input id="export-start-time" type="time">
+                </div>
             </div>
 
             <div class="export-field">
                 <label for="export-end-date">To</label>
-                <input id="export-end-date" type="date">
+                <div class="export-datetime">
+                    <input id="export-end-date" type="date">
+                    <input id="export-end-time" type="time">
+                </div>
             </div>
 
             <div class="export-field">
@@ -274,8 +294,9 @@
 
             <p class="export-hint">
                 Uses the search, movement and LPR filters above, plus
-                the date range and vehicle/plate type here. Limited to
-                2000 rows per export.
+                the date/time range and vehicle/plate type here (time
+                is optional - leave blank to cover the full day).
+                Limited to 2000 rows per export.
             </p>
 
         </div>

@@ -25,7 +25,7 @@ import os
 import json
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, time as dtime
 
 from flask import (
     Flask,
@@ -74,6 +74,16 @@ MAX_EVENTS_RETURNED = 500
 # silently getting a truncated report.
 MAX_EXPORT_ROWS = 2000
 EXPORT_THUMB_PX = 80
+
+# Camera considered "live" if the listener process saw stream data
+# (a chunk on the multipart HTTP connection - actual vehicle events
+# or the camera's own periodic heartbeat XML, whichever comes first)
+# within this many seconds. Generous on purpose: this is a
+# connectivity check, not a vehicle-throughput check, so it shouldn't
+# flip to "stale" during a quiet period with no cars.
+CAMERA_STATUS_STALE_SECONDS = float(
+    os.getenv("DASHBOARD_CAMERA_STATUS_STALE_SECONDS", "60")
+)
 
 # How often the background thread re-checks the output directories for
 # new/modified files. This is not the browser's refresh rate - the
@@ -236,19 +246,57 @@ def parse_date_param(value):
         return None
 
 
-def parse_event_date(event_time):
+def parse_time_param(value):
+    if not value:
+        return None
+
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except ValueError:
+        return None
+
+
+def parse_datetime_bound(date_str, time_str, end_of_day):
+    """Combines a date param with an optional time-of-day param into a
+    single bound for range filtering. Without a time, the bound covers
+    the whole day (00:00 for a start bound, 23:59:59.999999 for an end
+    bound) so plain date filtering keeps working unchanged."""
+
+    date_value = parse_date_param(date_str)
+
+    if date_value is None:
+        return None
+
+    time_value = parse_time_param(time_str)
+
+    if time_value is None:
+        time_value = dtime(23, 59, 59, 999999) if end_of_day else dtime(0, 0)
+
+    return datetime.combine(date_value, time_value)
+
+
+def parse_event_datetime(event_time):
+    """Event timestamps are stored tz-aware (camera's local offset);
+    filter bounds typed into the date/time inputs are naive local wall
+    clock values with no offset, so comparison drops tzinfo rather than
+    assuming UTC."""
+
     if not event_time:
         return None
 
     try:
-        return datetime.fromisoformat(event_time).date()
+        return datetime.fromisoformat(event_time).replace(tzinfo=None)
     except ValueError:
         return None
 
 
 def apply_filters(events, args):
-    start_date = parse_date_param(args.get("start_date"))
-    end_date = parse_date_param(args.get("end_date"))
+    start_dt = parse_datetime_bound(
+        args.get("start_date"), args.get("start_time"), end_of_day=False
+    )
+    end_dt = parse_datetime_bound(
+        args.get("end_date"), args.get("end_time"), end_of_day=True
+    )
     direction = args.get("direction") or ""
     lpr = args.get("lpr") or ""
     vehicle_type = args.get("vehicle_type") or ""
@@ -274,19 +322,57 @@ def apply_filters(events, args):
         if search and search not in event["full_plate"].lower():
             return False
 
-        if start_date or end_date:
-            event_date = parse_event_date(event["event_time"])
+        if start_dt or end_dt:
+            event_dt = parse_event_datetime(event["event_time"])
 
-            if event_date is None:
+            if event_dt is None:
                 return False
-            if start_date and event_date < start_date:
+            if start_dt and event_dt < start_dt:
                 return False
-            if end_date and event_date > end_date:
+            if end_dt and event_dt > end_dt:
                 return False
 
         return True
 
     return [event for event in events if matches(event)]
+
+
+def read_camera_status(role):
+    """Reads the status.json a listener process (anpr_common.py's
+    EventCache) writes on every watchdog tick (~1s) and on every
+    connect/disconnect. Lets the dashboard show camera connectivity
+    right after a restart instead of waiting for an actual vehicle
+    event to prove the stream is alive."""
+
+    path = os.path.join(BASE_DIR, "xml_temp", role, "status.json")
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {
+            "role": role,
+            "online": False,
+            "connected": False,
+            "last_frame_seconds_ago": None,
+        }
+
+    last_frame_at = data.get("last_frame_at")
+    last_frame_seconds_ago = (
+        time.time() - last_frame_at if last_frame_at else None
+    )
+
+    online = bool(data.get("connected")) and (
+        last_frame_seconds_ago is not None
+        and last_frame_seconds_ago < CAMERA_STATUS_STALE_SECONDS
+    )
+
+    return {
+        "role": role,
+        "online": online,
+        "connected": bool(data.get("connected")),
+        "last_frame_seconds_ago": last_frame_seconds_ago,
+    }
 
 
 def resolve_image_path(event, image_field):
@@ -824,6 +910,14 @@ def health():
         "exit_directory": os.path.isdir(EXIT_DIR),
         "indexed_events": len(index._events),
         "index_version": index.version,
+    })
+
+
+@app.route("/api/camera-status")
+def api_camera_status():
+    return jsonify({
+        "entry": read_camera_status("Entry"),
+        "exit": read_camera_status("Exit"),
     })
 
 

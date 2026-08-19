@@ -482,6 +482,85 @@ document
 
 
 /* =========================================================
+   CAMERA STATUS
+
+   Independent of ANPR events - reads the listener's connection state
+   (/api/camera-status, backed by anpr_common.py's EventCache writing
+   a status.json on every watchdog tick) so a restarted/disconnected
+   camera shows up immediately instead of only being noticeable once
+   a vehicle triggers the next event.
+========================================================= */
+
+function renderCameraStatus(elementId, status) {
+
+    const el =
+        document.getElementById(elementId);
+
+    if (!status) {
+        el.textContent = "Camera status unknown";
+        el.className = "camera-status";
+        return;
+    }
+
+    if (status.online) {
+
+        el.textContent = "Camera Live";
+        el.className = "camera-status online";
+
+    } else if (status.connected) {
+
+        el.textContent = "No Recent Data";
+        el.className = "camera-status offline";
+
+    } else {
+
+        el.textContent = "Camera Offline";
+        el.className = "camera-status offline";
+    }
+}
+
+
+async function loadCameraStatus() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/camera-status",
+                {
+                    cache: "no-store"
+                }
+            );
+
+        if (!response.ok) {
+            return;
+        }
+
+        const data =
+            await response.json();
+
+        renderCameraStatus(
+            "camera-status-entry",
+            data.entry
+        );
+
+        renderCameraStatus(
+            "camera-status-exit",
+            data.exit
+        );
+
+    }
+
+    catch (error) {
+        console.error(
+            "Failed to load camera status:",
+            error
+        );
+    }
+}
+
+
+/* =========================================================
    EXPORT REPORT
 
    Server-side rendered xlsx/pdf with embedded plate thumbnails
@@ -575,9 +654,19 @@ function buildExportParams() {
         .getElementById("export-start-date")
         .value;
 
+    const startTime =
+        document
+        .getElementById("export-start-time")
+        .value;
+
     const endDate =
         document
         .getElementById("export-end-date")
+        .value;
+
+    const endTime =
+        document
+        .getElementById("export-end-time")
         .value;
 
     const vehicleType =
@@ -594,7 +683,9 @@ function buildExportParams() {
     if (direction) params.set("direction", direction);
     if (lprFilter) params.set("lpr", lprFilter);
     if (startDate) params.set("start_date", startDate);
+    if (startDate && startTime) params.set("start_time", startTime);
     if (endDate) params.set("end_date", endDate);
+    if (endDate && endTime) params.set("end_time", endTime);
     if (vehicleType) params.set("vehicle_type", vehicleType);
     if (plateType) params.set("plate_type", plateType);
 
@@ -768,9 +859,15 @@ function connectEventStream() {
 
 loadEvents();
 loadExportFilterOptions();
+loadCameraStatus();
 connectEventStream();
 
 setInterval(
     loadEvents,
     POLL_INTERVAL_MS
+);
+
+setInterval(
+    loadCameraStatus,
+    5000
 );
