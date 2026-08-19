@@ -307,6 +307,138 @@ body {
 }
 
 
+/* HISTORY ACTIONS */
+
+.history-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.export-toggle-btn {
+    border: 1px solid #18864b;
+
+    background: white;
+    color: #18864b;
+
+    padding: 10px 16px;
+
+    border-radius: 9px;
+
+    font-size: 13px;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+.export-toggle-btn:hover {
+    background: #edf5f1;
+}
+
+.export-toggle-btn.active {
+    background: #18864b;
+    color: white;
+}
+
+
+/* EXPORT PANEL */
+
+.export-panel {
+    display: none;
+
+    padding: 18px 22px 22px;
+
+    margin: 0 22px 20px;
+
+    background: #f7faf8;
+
+    border: 1px solid #dfe8e3;
+    border-radius: 12px;
+
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 14px;
+}
+
+.export-panel.open {
+    display: flex;
+}
+
+.export-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.export-field label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #59645f;
+}
+
+.export-field input,
+.export-field select {
+    padding: 10px 12px;
+
+    border: 1px solid #d8dfdc;
+    border-radius: 8px;
+
+    background: white;
+
+    font-size: 14px;
+}
+
+.export-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.export-btn {
+    border: 0;
+
+    padding: 11px 18px;
+
+    border-radius: 8px;
+
+    font-weight: 700;
+    font-size: 14px;
+
+    cursor: pointer;
+}
+
+.export-btn:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
+.export-btn-xlsx {
+    background: #18864b;
+    color: white;
+}
+
+.export-btn-xlsx:hover:not(:disabled) {
+    background: #146f3d;
+}
+
+.export-btn-pdf {
+    background: #bd3e3e;
+    color: white;
+}
+
+.export-btn-pdf:hover:not(:disabled) {
+    background: #a13333;
+}
+
+.export-hint {
+    flex-basis: 100%;
+
+    margin: 4px 0 0;
+
+    font-size: 12px;
+    color: #83918b;
+}
+
+
 /* FILTERS */
 
 .filters {
@@ -522,6 +654,22 @@ tbody tr:hover {
     }
 
     .filters input {
+        width: 100%;
+    }
+
+    .history-actions {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .export-panel {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .export-field input,
+    .export-field select {
         width: 100%;
     }
 }

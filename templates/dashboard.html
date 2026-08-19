@@ -157,9 +157,21 @@
                 </p>
             </div>
 
-            <div class="last-update">
-                Updated
-                <strong id="last-update">--</strong>
+            <div class="history-actions">
+
+                <div class="last-update">
+                    Updated
+                    <strong id="last-update">--</strong>
+                </div>
+
+                <button
+                    id="export-toggle"
+                    class="export-toggle-btn"
+                    type="button"
+                >
+                    Export Report
+                </button>
+
             </div>
 
         </div>
@@ -206,6 +218,65 @@
                 </option>
 
             </select>
+
+        </div>
+
+
+        <!-- EXPORT PANEL -->
+        <div
+            class="export-panel"
+            id="export-panel"
+        >
+
+            <div class="export-field">
+                <label for="export-start-date">From</label>
+                <input id="export-start-date" type="date">
+            </div>
+
+            <div class="export-field">
+                <label for="export-end-date">To</label>
+                <input id="export-end-date" type="date">
+            </div>
+
+            <div class="export-field">
+                <label for="export-vehicle-type">Vehicle Type</label>
+                <select id="export-vehicle-type">
+                    <option value="">All Vehicle Types</option>
+                </select>
+            </div>
+
+            <div class="export-field">
+                <label for="export-plate-type">Plate Type</label>
+                <select id="export-plate-type">
+                    <option value="">All Plate Types</option>
+                </select>
+            </div>
+
+            <div class="export-actions">
+
+                <button
+                    type="button"
+                    id="export-xlsx"
+                    class="export-btn export-btn-xlsx"
+                >
+                    Export Excel
+                </button>
+
+                <button
+                    type="button"
+                    id="export-pdf"
+                    class="export-btn export-btn-pdf"
+                >
+                    Export PDF
+                </button>
+
+            </div>
+
+            <p class="export-hint">
+                Uses the search, movement and LPR filters above, plus
+                the date range and vehicle/plate type here. Limited to
+                2000 rows per export.
+            </p>
 
         </div>
 

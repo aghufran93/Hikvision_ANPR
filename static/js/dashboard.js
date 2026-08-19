@@ -482,6 +482,248 @@ document
 
 
 /* =========================================================
+   EXPORT REPORT
+
+   Server-side rendered xlsx/pdf with embedded plate thumbnails
+   (/api/export), filtered by the same search/direction/lpr controls
+   used for the live table plus a date range and vehicle/plate type
+   picked here - those two aren't in the live filter bar since the
+   table only ever shows the latest 500 events, not a date-bounded
+   set.
+========================================================= */
+
+async function loadExportFilterOptions() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/filters",
+                {
+                    cache: "no-store"
+                }
+            );
+
+        if (!response.ok) {
+            return;
+        }
+
+        const data =
+            await response.json();
+
+        fillOptions(
+            "export-vehicle-type",
+            data.vehicle_types || []
+        );
+
+        fillOptions(
+            "export-plate-type",
+            data.plate_types || []
+        );
+
+    }
+
+    catch (error) {
+        console.error(
+            "Failed to load export filter options:",
+            error
+        );
+    }
+}
+
+
+function fillOptions(selectId, values) {
+
+    const select =
+        document.getElementById(selectId);
+
+    values.forEach(value => {
+
+        const option =
+            document.createElement("option");
+
+        option.value = value;
+        option.textContent = value;
+
+        select.appendChild(option);
+    });
+}
+
+
+function buildExportParams() {
+
+    const params = new URLSearchParams();
+
+    const search =
+        document
+        .getElementById("search")
+        .value
+        .trim();
+
+    const direction =
+        document
+        .getElementById("direction-filter")
+        .value;
+
+    const lprFilter =
+        document
+        .getElementById("lpr-filter")
+        .value;
+
+    const startDate =
+        document
+        .getElementById("export-start-date")
+        .value;
+
+    const endDate =
+        document
+        .getElementById("export-end-date")
+        .value;
+
+    const vehicleType =
+        document
+        .getElementById("export-vehicle-type")
+        .value;
+
+    const plateType =
+        document
+        .getElementById("export-plate-type")
+        .value;
+
+    if (search) params.set("search", search);
+    if (direction) params.set("direction", direction);
+    if (lprFilter) params.set("lpr", lprFilter);
+    if (startDate) params.set("start_date", startDate);
+    if (endDate) params.set("end_date", endDate);
+    if (vehicleType) params.set("vehicle_type", vehicleType);
+    if (plateType) params.set("plate_type", plateType);
+
+    return params;
+}
+
+
+function exportErrorMessage(status) {
+
+    if (status === 404) {
+        return "No events match the selected filters.";
+    }
+
+    if (status === 413) {
+        return (
+            "Too many events matched (max 2000) - " +
+            "narrow the date range or filters and try again."
+        );
+    }
+
+    return "Export failed (error " + status + "). Please try again.";
+}
+
+
+async function exportReport(format, button) {
+
+    const params = buildExportParams();
+    params.set("format", format);
+
+    button.disabled = true;
+
+    const originalLabel = button.textContent;
+    button.textContent = "Exporting...";
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/export?" + params.toString()
+            );
+
+        if (!response.ok) {
+            alert(exportErrorMessage(response.status));
+            return;
+        }
+
+        const blob = await response.blob();
+
+        const disposition =
+            response.headers.get("Content-Disposition") || "";
+
+        const match =
+            disposition.match(/filename="?([^"]+)"?/);
+
+        const filename =
+            match
+                ? match[1]
+                : "anpr_export." + format;
+
+        const link = document.createElement("a");
+
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        URL.revokeObjectURL(link.href);
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Export failed:",
+            error
+        );
+
+        alert("Export failed. Please check your connection and try again.");
+
+    }
+
+    finally {
+
+        button.disabled = false;
+        button.textContent = originalLabel;
+    }
+}
+
+
+document
+.getElementById("export-toggle")
+.addEventListener(
+    "click",
+    function() {
+
+        const panel =
+            document.getElementById("export-panel");
+
+        panel.classList.toggle("open");
+
+        this.classList.toggle(
+            "active",
+            panel.classList.contains("open")
+        );
+    }
+);
+
+document
+.getElementById("export-xlsx")
+.addEventListener(
+    "click",
+    function() {
+        exportReport("xlsx", this);
+    }
+);
+
+document
+.getElementById("export-pdf")
+.addEventListener(
+    "click",
+    function() {
+        exportReport("pdf", this);
+    }
+);
+
+
+/* =========================================================
    LIVE UPDATES
 
    Server-Sent Events push a lightweight "something changed" signal
@@ -525,6 +767,7 @@ function connectEventStream() {
 ========================================================= */
 
 loadEvents();
+loadExportFilterOptions();
 connectEventStream();
 
 setInterval(
